@@ -1,101 +1,107 @@
 #!/bin/bash
 
 ################################################################################
-# Script: findVariants
-# Descripción:
-#   Este script ejecuta NGSEP para detectar variantes en una muestra individual
-#   usando un archivo BAM de entrada. Puede incluir un archivo VCF con variantes
-#   conocidas si se especifica.
+# Script: find_variants.sh
+# Description:
+#   Runs NGSEP to detect variants in an individual sample using an input BAM file.
+#   A VCF file with known variants can be included if specified.
 #
-# Uso:
-#   ./findVariants -b <ruta_al_bam> -o <vcf_de_salida> [-k <vcf_conocido>]
+# Usage:
+#   ./find_variants.sh -b <bam_path> -o <output_vcf> [-k <known_vcf>]
 #
-# Ejemplo:
-#   ./findVariants -b sample01_aln_sorted.bam \
-#                  -o /ruta/salida/sample01_variant.vcf \
-#                  -k /ruta/AllSamples_variants.vcf
+# Example:
+#   ./find_variants.sh -b sample01_aln_sorted.bam \
+#                      -o /path/output/sample01_variant.vcf \
+#                      -k /path/AllSamples_variants.vcf
 ################################################################################
 
 # ----------------------------------------------------------------------------
-# Parseo de argumentos
+# Load configuration if available (standalone execution support)
+# ----------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SUITE_BASE="$(dirname "$(dirname "$SCRIPT_DIR")")"
+if [[ -f "$SUITE_BASE/lib/load_config.sh" ]]; then
+    source "$SUITE_BASE/lib/load_config.sh"
+fi
+
+# ----------------------------------------------------------------------------
+# Argument parsing
 # ----------------------------------------------------------------------------
 while getopts "b:o:k:" opt; do
     case "$opt" in
-        b) path="$OPTARG" ;;
-        o) variant_file="$OPTARG" ;;
-        k) known_variants="$OPTARG" ;;
+        b) bam_path="$OPTARG" ;;
+        o) output_vcf="$OPTARG" ;;
+        k) known_vcf="$OPTARG" ;;
         *)
-            echo "Uso: $0 -b <ruta_al_bam> -o <vcf_de_salida> [-k <vcf_conocido>]"
+            echo "Usage: $0 -b <bam_path> -o <output_vcf> [-k <known_vcf>]"
             exit 1
             ;;
     esac
 done
 
-# Verificar que se proporcionaron los parámetros obligatorios
-if [[ -z "$path" || -z "$variant_file" ]]; then
-    echo "Error: Debes proporcionar la ruta al archivo BAM con -b y el archivo VCF de salida con -o."
-    echo "Uso: $0 -b <ruta_al_bam> -o <vcf_de_salida> [-k <vcf_conocido>]"
+# Verify mandatory parameters
+if [[ -z "$bam_path" || -z "$output_vcf" ]]; then
+    echo "Error: You must provide the BAM file path with -b and the output VCF file with -o."
+    echo "Usage: $0 -b <bam_path> -o <output_vcf> [-k <known_vcf>]"
     exit 1
 fi
 
 # ----------------------------------------------------------------------------
-# Extraer el nombre del archivo y el directorio
+# Extract filename and directory
 # ----------------------------------------------------------------------------
-filename=$(basename "$path")
-dirpath=$(dirname "$path")
-ind=$(echo "$filename" | cut -d'_' -f1)
+filename=$(basename "$bam_path")
+dir_path=$(dirname "$bam_path")
+sample_id=$(echo "$filename" | cut -d'_' -f1)
 
-# (Opcional) Mostrar información del archivo procesado
-printf "Nombre del archivo: %s\n" "$filename"
-printf "Directorio: %s\n" "$dirpath"
-
-# ----------------------------------------------------------------------------
-# Configuración de variables
-# ----------------------------------------------------------------------------
-sample_id="$ind"
-#reference="/biodata7/proyectos/ensamblajeCC01-1940/v2/genoma_enmascarado/cc-01-1940_flye_polishing_allhic_ngsepBuilder_enmascarado.fasta"
-
-#reference="/biodata7/proyectos/references_bank/R570/Saccharum_hybrid_cultivar_R570.assembly.fna"
-
-reference="/biodata5/proyectos/llamado_variantes_olivier/referencia_r570/SofficinarumxspontaneumR570_771_v2.0_monoploid.hardmasked.fasta"
-
-# Obtener ruta base del archivo de salida (sin .vcf)
-variant_base="${variant_file%.vcf}"
-log_file="${variant_base}_bowtie2_NGSEP_gt.log"
+# (Optional) Display processed file information
+printf "Processing file: %s\n" "$filename"
+printf "Directory: %s\n" "$dir_path"
 
 # ----------------------------------------------------------------------------
-# Ejecución de NGSEP si el archivo aún no ha sido generado
+# Configuration and Path derivation
 # ----------------------------------------------------------------------------
-if [ ! -f "$variant_file" ]; then
-    echo "Ejecutando NGSEP para la muestra: $sample_id"
+# Default reference (can be overridden in biobash.conf if added there, 
+# otherwise keep this default for compatibility with olivier's project)
+REFERENCE="${REFERENCE_DEFAULT:-/biodata5/proyectos/llamado_variantes_olivier/referencia_r570/SofficinarumxspontaneumR570_771_v2.0_monoploid.hardmasked.fasta}"
+
+# Get base path for output file (without .vcf)
+output_base="${output_vcf%.vcf}"
+log_file="${output_base}_NGSEP_variant_calling.log"
+
+# ----------------------------------------------------------------------------
+# NGSEP Execution (if output file does not already exist)
+# ----------------------------------------------------------------------------
+if [ ! -f "$output_vcf" ]; then
+    echo "Running NGSEP for sample: $sample_id"
 
     cmd=(
-        java -XX:MaxHeapSize=30g -jar /biodata1/biotools/ngsep/NGSEPcore/NGSEPcore_5.0.0.jar SingleSampleVariantsDetector
+        "${JAVA_BIN:-java}" -XX:MaxHeapSize="${JVM_MAX_HEAP:-30g}" -jar "${NGSEP_JAR:-/biodata1/biotools/ngsep/NGSEPcore/NGSEPcore_5.0.0.jar}" SingleSampleVariantsDetector
     )
 
-    # Agregar -knownVariants si se especificó
-    if [ -n "$known_variants" ]; then
-        cmd+=( -knownVariants "$known_variants" )
+    # Add -knownVariants if specified
+    if [ -n "$known_vcf" ]; then
+        cmd+=( -knownVariants "$known_vcf" )
     fi
 
-    # Parámetros comunes
+    # Common parameters
     cmd+=(
-        -ignore5 0
-        -ignore3 0
         -sampleId "$sample_id"
-        -ploidy 10 \
-        -minMQ 30 \
-        -maxBaseQS 30 \
-        -ignore5 5 \
-        -ignore3 5  \
-        -maxAlnsPerStartPos 100 \
-        -r "$reference"
-        -o "$variant_base"
-        -i "$path"
+        -ploidy 10
+        -minMQ 30
+        -maxBaseQS 30
+        -ignore5 5
+        -ignore3 5
+        -maxAlnsPerStartPos 100
+        -r "$REFERENCE"
+        -o "$output_base"
+        -i "$bam_path"
     )
 
-    # Ejecutar comando completo y redirigir salida al log
+    # Execute full command and redirect output to log
+    echo "Executing: ${cmd[*]}"
     "${cmd[@]}" >& "$log_file"
 else
-    printf "El archivo de variantes ya existe: %s\n" "$variant_file"
+    printf "Variant file already exists: %s\n" "$output_vcf"
 fi
+
+echo "Process completed for sample ${sample_id}."

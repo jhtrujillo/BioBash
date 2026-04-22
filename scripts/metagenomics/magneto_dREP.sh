@@ -1,107 +1,86 @@
 #!/bin/bash
 
-# Este script genera el archivo de Mash y luego ejecuta dRep para la dereplicación de bins.
+# ------------------------------------------------------------------
+# Script: magneto_dREP.sh
+# Description: Generates Mash sketches and runs dRep for
+#              dereplication of genomic bins (MAGs).
+#
+# Usage:
+#   ./magneto_dREP.sh -mashdb <mash_dir> -bins <bins_dir> -out <results_subdir> \
+#                     [-p <threads>] [--completeness <val>] [--contamination <val>]
+#
+# Parameters:
+#   -mashdb         Directory to store Mash files
+#   -bins           Directory containing bin files (.fa)
+#   -out            Subdirectory name for Mash and dRep results
+#   -p              Number of threads (default: 40)
+#   --completeness  Minimum bin completeness (default: 0.40)
+#   --contamination Maximum allowed contamination (default: 15.0)
+# ------------------------------------------------------------------
 
-# --- Parámetros de entrada ---
-# -mashdb: Directorio donde se guardará el archivo de Mash
-# -bins: Ruta al directorio de los bins (archivos .fa)
-# -out: Subdirectorio donde se guardarán los resultados de Mash y dRep
-# -p: Número de procesadores a usar (opcional, por defecto 1)
-# --completeness: Compleción mínima del bin (opcional, por defecto 0.95)
-# --contamination: Contaminación máxima permitida (opcional, por defecto 5.0)
-
-# Función de ayuda
 usage() {
-    echo "Uso: $0 -mashdb <ruta_a_mash_db> -bins <ruta_a_bins> -out <nombre_del_subdirectorio> [-p <num_procesadores>] [--completeness <valor>] [--contamination <valor>]"
-    echo " "
-    echo "Opciones:"
-    echo "  -mashdb           Ruta al directorio donde se guardarán los archivos de Mash"
-    echo "  -bins             Ruta al directorio de los bins (archivos .fa)"
-    echo "  -out              Nombre del subdirectorio para los resultados de Mash y dRep"
-    echo "  -p                Número de procesadores a usar (opcional, por defecto 1)"
-    echo "  --completeness    Completitud mínima de los bins (opcional, por defecto 0.95)"
-    echo "  --contamination   Contaminación máxima permitida (opcional, por defecto 5.0)"
+    echo "Usage: $0 -mashdb <mash_dir> -bins <bins_dir> -out <subdir_name> [-p <threads>] [--completeness <val>] [--contamination <val>]"
+    echo ""
+    echo "Options:"
+    echo "  -mashdb           Directory to save Mash files."
+    echo "  -bins             Directory containing bin files (.fa)."
+    echo "  -out              Subdirectory name for results."
+    echo "  -p                Number of threads (default: 40)."
+    echo "  --completeness    Minimum bin completeness (default: 0.40)."
+    echo "  --contamination   Maximum allowed contamination (default: 15.0)."
     exit 1
 }
 
-# Valores por defecto para parámetros opcionales
-processors=40
+# Defaults
+threads=40
 completeness=0.40
 contamination=15.0
 
-# Parseo de parámetros
+# Parse arguments
 while [[ "$#" -gt 0 ]]; do
     case "$1" in
-        -mashdb)
-            mash_db="$2"
-            shift
-            ;;
-        -bins)
-            bins="$2"
-            shift
-            ;;
-        -out)
-            salida="$2"
-            shift
-            ;;
-        -p)
-            processors="$2"
-            shift
-            ;;
-        --completeness)
-            completeness="$2"
-            shift
-            ;;
-        --contamination)
-            contamination="$2"
-            shift
-            ;;
-        -h|--help)
-            usage
-            ;;
-        *)
-            echo "Opción inválida: $1" >&2
-            usage
-            ;;
+        -mashdb)       mash_db="$2";      shift ;;
+        -bins)         bins="$2";          shift ;;
+        -out)          output_name="$2";   shift ;;
+        -p)            threads="$2";       shift ;;
+        --completeness) completeness="$2"; shift ;;
+        --contamination) contamination="$2"; shift ;;
+        -h|--help)     usage ;;
+        *) echo "Invalid option: $1" >&2; usage ;;
     esac
     shift
 done
 
-# Verificar que todos los parámetros requeridos fueron proporcionados
-if [ -z "$mash_db" ] || [ -z "$bins" ] || [ -z "$salida" ]; then
-    echo "Error: Faltan parámetros. Uso: $0 -mashdb <ruta_a_mash_db> -bins <ruta_a_bins> -out <nombre_del_subdirectorio>"
-    usage # Llama a la función de ayuda para mostrar el uso correcto
+if [ -z "$mash_db" ] || [ -z "$bins" ] || [ -z "$output_name" ]; then
+    echo "Error: Missing required parameters."
+    usage
 fi
 
-
+# Activate Conda environment
 conda activate bowtie_env_py310
 
-# Crear las carpetas necesarias
-mkdir -p "${mash_db}"             # Crear el directorio de salida de Mash
-mkdir -p "${mash_db}/${salida}"   # Crear subdirectorio para los resultados específicos
+# Create directories
+mkdir -p "${mash_db}"
+mkdir -p "${mash_db}/${output_name}"
 
-# Generar los sketches de Mash
-echo "Generando el archivo de Mash Sketch..."
-mash sketch -o "${mash_db}/${salida}/${salida}" "${bins}"/*.fa
+# Generate Mash sketches
+echo "Generating Mash sketch files..."
+mash sketch -o "${mash_db}/${output_name}/${output_name}" "${bins}"/*.fa
 
-# Ahora ejecutamos dRep para la dereplicación usando el archivo de sketch generado
-# El archivo de sketch es `${mash_db}/${salida}/${salida}.msh`
-echo "Ejecutando dRep para la dereplicación de bins..."
-
+# Run dRep dereplication
+echo "Running dRep for bin dereplication..."
 dRep dereplicate complete_only -g "${bins}"/*.fa --S_algorithm gANI
 
-#dRep dereplicate "dREP_all/" \
-#  -p "$processors" \
-#  --completeness "$completeness" \
-#  --contamination "$contamination" \
-  #--MASH_sketch "${mash_db}/${salida}/${salida}.msh" \
-#  -g "${bins}"/*.fa --S_algorithm gANI
+# Example with full parameters (uncomment and customize as needed):
+# dRep dereplicate "dREP_all/" \
+#   -p "$threads" \
+#   --completeness "$completeness" \
+#   --contamination "$contamination" \
+#   -g "${bins}"/*.fa --S_algorithm gANI
 
-
-# Verificar si dRep se ejecutó correctamente
 if [ $? -ne 0 ]; then
-    echo "Error: La ejecución de dRep falló."
+    echo "Error: dRep execution failed."
     exit 1
 fi
 
-echo "dRep completado exitosamente. Los resultados están en ${mash_db}/${salida}/."
+echo "dRep completed successfully. Results in: ${mash_db}/${output_name}/"

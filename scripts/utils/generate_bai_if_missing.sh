@@ -3,64 +3,58 @@
 # ------------------------------------------------------------------------------
 # Script: generate_bai_if_missing.sh
 # Description:
-#   Recibe un archivo .bam con -b y el número de procesadores con -p (opcional).
-#   Si el archivo .bai no existe, lo genera en la misma ubicación del BAM.
+#   Receives a BAM file with -b and the number of threads with -p (optional).
+#   If the .bai index file does not exist, it generates it in the same location.
 # ------------------------------------------------------------------------------
 
-# Función de ayuda
 function usage {
-    echo "Uso: $0 -b <archivo.bam> [-p <procesadores>]"
-    echo "Ejemplo: $0 -b /ruta/a/sample.bam -p 8"
+    echo "Usage: $0 -b <input.bam> [-p <threads>]"
+    echo "Example: $0 -b /path/to/sample.bam -p 8"
     exit 1
 }
 
-# Verificar que samtools esté instalado
+# Verify samtools is installed
 if ! command -v samtools &>/dev/null; then
-    echo "Error: samtools no está instalado o no está en el PATH."
+    echo "Error: samtools is not installed or not in the PATH."
     exit 1
 fi
 
-# Valores por defecto
-processors=4
+# Defaults
+threads=4
 
-# Parsear argumentos
+# Parse arguments
 while getopts ":b:p:" opt; do
   case $opt in
     b) bam_file="$OPTARG" ;;
-    p) processors="$OPTARG" ;;
+    p) threads="$OPTARG" ;;
     *) usage ;;
   esac
 done
 
-# Verificar argumentos obligatorios
 if [ -z "${bam_file:-}" ]; then
     usage
 fi
 
-# Verificar existencia del archivo BAM
 if [ ! -f "$bam_file" ]; then
-    echo "Error: el archivo '$bam_file' no existe."
+    echo "Error: File '$bam_file' does not exist."
     exit 1
 fi
 
-# Obtener ruta absoluta del BAM y su directorio
+# Get absolute path of BAM
 bam_file_abs="$(readlink -f "$bam_file")"
-bam_dir="$(dirname "$bam_file_abs")"
 bam_name="$(basename "$bam_file_abs")"
-
-# Ruta del archivo .bai
 bai_file="$bam_file_abs.bai"
 
-# Verificar y crear índice si no existe
+# Check and create index if missing
 if [ -f "$bai_file" ]; then
-    echo "El archivo índice ya existe: $bai_file"
+    echo "Index file already exists: $bai_file"
 else
-    echo "Generando índice para '$bam_name' con $processors procesador(es)..."
-    samtools index -@ "$processors" "$bam_file_abs"
+    echo "Generating index for '$bam_name' using $threads thread(s)..."
+    samtools index -@ "$threads" "$bam_file_abs"
     if [ $? -eq 0 ]; then
-        echo "Índice generado exitosamente: $bai_file"
+        echo "Index generated successfully: $bai_file"
     else
-        echo "Error al generar el índice."
+        echo "Error: Failed to generate index."
         exit 1
     fi
 fi

@@ -1,52 +1,51 @@
 #!/bin/bash
 
-# Uso: ./extract_genotypes.sh archivo.csv lista_snps.txt [lista_individuos.txt]
+# Usage: ./extract_genotypes.sh genotype_matrix.csv snp_list.txt [individual_list.txt]
 
-ARCHIVO_CSV=$1
-LISTA_SNPS=$2
-LISTA_INDIVIDUOS=$3
+INPUT_CSV=$1
+SNP_LIST=$2
+INDIVIDUAL_LIST=$3
 
-if [[ ! -f "$ARCHIVO_CSV" || ! -f "$LISTA_SNPS" ]]; then
-    echo "Uso: $0 archivo.csv lista_snps.txt [lista_individuos.txt]"
+if [[ ! -f "$INPUT_CSV" || ! -f "$SNP_LIST" ]]; then
+    echo "Usage: $0 genotype_matrix.csv snp_list.txt [individual_list.txt]"
     exit 1
 fi
 
-# 1. Definir los índices de las columnas
-if [[ -f "$LISTA_INDIVIDUOS" ]]; then
-    # Obtener índices de los individuos solicitados (manteniendo columna 1)
-    IND_PATT=$(tr -d '\r' < "$LISTA_INDIVIDUOS" | paste -sd '|' -)
-    IDXS=$(head -n 1 "$ARCHIVO_CSV" | tr ',' '\n' | tr -d '\r' | nl -v 1 | \
-          grep -E "^[[:space:]]+[0-9]+[[:space:]]+(Marker|($IND_PATT))$" | \
+# 1. Define column indexes
+if [[ -f "$INDIVIDUAL_LIST" ]]; then
+    # Get indexes for requested individuals (keeping column 1 - Marker)
+    IND_PATTERN=$(tr -d '\r' < "$INDIVIDUAL_LIST" | paste -sd '|' -)
+    COLUMN_IDXS=$(head -n 1 "$INPUT_CSV" | tr ',' '\n' | tr -d '\r' | nl -v 1 | \
+          grep -E "^[[:space:]]+[0-9]+[[:space:]]+(Marker|($IND_PATTERN))$" | \
           awk '{print $1}' | tr '\n' ',')
 else
-    # Si no hay lista, usar columna 1 (Marker) y de la 6 en adelante (Individuos)
-    # Primero obtenemos el número total de columnas
-    TOTAL_COLS=$(head -n 1 "$ARCHIVO_CSV" | tr ',' '\n' | wc -l)
-    IDXS="1,"$(seq -s, 6 $TOTAL_COLS)
+    # If no individual list, use column 1 (Marker) and columns 6+ (Individuals)
+    TOTAL_COLS=$(head -n 1 "$INPUT_CSV" | tr ',' '\n' | wc -l)
+    COLUMN_IDXS="1,"$(seq -s, 6 $TOTAL_COLS)
 fi
 
-# Limpiar coma final si existe
-IDXS=$(echo $IDXS | sed 's/,$//')
+# Remove trailing comma if present
+COLUMN_IDXS=$(echo $COLUMN_IDXS | sed 's/,$//')
 
-# 2. Procesar con AWK
-awk -F',' -v snps_file="$LISTA_SNPS" -v idxs_str="$IDXS" '
+# 2. Process with AWK
+awk -F',' -v snps_file="$SNP_LIST" -v idxs_str="$COLUMN_IDXS" '
     BEGIN {
-        # Cargar lista de SNPs buscados
+        # Load list of target SNPs
         while ((getline < snps_file) > 0) {
             gsub(/\r/, "", $0);
             if ($0 != "") snp_list[$0] = 1
         }
-        # Convertir cadena de índices en un arreglo
+        # Convert index string into an array
         n_idx = split(idxs_str, target_cols, ",")
     }
     
     {
-        # Obtener el prefijo del marcador (ej: de 1_10058043_T_C extrae 1_10058043)
-        # En la primera línea (NR==1), "prefix" será "Marker"
+        # Get the marker prefix (e.g.: from 1_10058043_T_C, extract 1_10058043)
+        # On the first line (NR==1), "prefix" will be "Marker"
         match($1, /^[0-9]+_[0-9]+/)
         prefix = (NR == 1) ? "Marker" : substr($1, RSTART, RLENGTH)
 
-        # Si es la cabecera O el prefijo está en nuestra lista de SNPs
+        # If it is the header OR the prefix is in our SNP list
         if (NR == 1 || prefix in snp_list) {
             for (i = 1; i <= n_idx; i++) {
                 printf "%s%s", $target_cols[i], (i == n_idx ? "" : ",")
@@ -54,4 +53,4 @@ awk -F',' -v snps_file="$LISTA_SNPS" -v idxs_str="$IDXS" '
             print ""
         }
     }
-' "$ARCHIVO_CSV"
+' "$INPUT_CSV"

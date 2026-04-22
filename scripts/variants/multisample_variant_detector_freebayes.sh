@@ -1,23 +1,35 @@
-# ============================================
-# Script para ejecutar FreeBayes en múltiples archivos BAM y CRAM
-# desde múltiples rutas especificadas por el usuario.
-# Permite definir el nombre del archivo VCF de salida.
-#
-# Uso:
-#   bash multisamplevariantsdetectorFreeBayes.sh -d /ruta1 /ruta2 /ruta3 -o salida.vcf
-#
-# Parámetros:
-#   -d: Lista de rutas separadas por espacios (no requiere comillas)
-#   -o: Nombre del archivo VCF de salida
-# ============================================
+#!/bin/bash
 
-# --------------------------------------------
-# Parsear argumentos -d para rutas y -o para archivo de salida
-# --------------------------------------------
+# ============================================================================
+# Script: multisample_variant_detector_freebayes.sh
+# Description: Runs FreeBayes variant caller on multiple BAM/CRAM files
+#              from one or more specified directories.
+#
+# Usage:
+#   bash multisample_variant_detector_freebayes.sh -d /path1 /path2 -o output.vcf
+#
+# Parameters:
+#   -d: One or more directories containing BAM/CRAM files (space-separated)
+#   -o: Output VCF filename
+# ============================================================================
+
+# -----------------------------------------------
+# Load configuration if available
+# -----------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SUITE_BASE="$(dirname "$(dirname "$SCRIPT_DIR")")"
+if [[ -f "$SUITE_BASE/lib/load_config.sh" ]]; then
+    source "$SUITE_BASE/lib/load_config.sh"
+fi
+
+# -----------------------------------------------
+# Parse -d (directories) and -o (output vcf)
+# -----------------------------------------------
 INPUT_DIRS=()
+OUTPUT_VCF=""
+
 while [[ $# -gt 0 ]]; do
-  key="$1"
-  case $key in
+  case "$1" in
     -d)
       shift
       while [[ $# -gt 0 && "$1" != -* ]]; do
@@ -29,29 +41,33 @@ while [[ $# -gt 0 ]]; do
       OUTPUT_VCF="$2"
       shift 2
       ;;
+    -r)
+      REFERENCE_OVERRIDE="$2"
+      shift 2
+      ;;
     *)
       shift
       ;;
   esac
 done
 
-# --------------------------------------------
-# Usar rutas por defecto si no se proporcionan
-# --------------------------------------------
+# Use default dirs if not provided
 if [ ${#INPUT_DIRS[@]} -eq 0 ]; then
-  INPUT_DIRS=(/ruta1 /ruta2 /ruta3)
+  echo "Error: You must specify at least one input directory with -d."
+  exit 1
 fi
 
-# --------------------------------------------
-# Usar nombre por defecto si no se proporciona VCF de salida
-# --------------------------------------------
+# Use default output VCF name if not provided
 if [ -z "$OUTPUT_VCF" ]; then
-  OUTPUT_VCF="output.vcf"
+  OUTPUT_VCF="output_freebayes.vcf"
 fi
 
-# --------------------------------------------
-# Buscar archivos BAM y CRAM en las rutas dadas
-# --------------------------------------------
+# Reference: override in config or use default
+REFERENCE="${REFERENCE_OVERRIDE:-${REFERENCE_DEFAULT:-/biodata7/proyectos/ensamblajeCC01-1940/v2/genoma_enmascarado/cc-01-1940_flye_polishing_allhic_ngsepBuilder_enmascarado.fasta}}"
+
+# -----------------------------------------------
+# Collect BAM/CRAM files from input directories
+# -----------------------------------------------
 FILES=""
 for DIR in "${INPUT_DIRS[@]}"; do
   for EXT in bam cram; do
@@ -61,19 +77,20 @@ for DIR in "${INPUT_DIRS[@]}"; do
   done
 done
 
-# --------------------------------------------
-# Verificar que se encontraron archivos válidos
-# --------------------------------------------
 if [ -z "$FILES" ]; then
-  echo "No se encontraron archivos .bam ni .cram en las rutas especificadas"
+  echo "Error: No .bam or .cram files found in the specified directories."
   exit 1
 fi
 
-# --------------------------------------------
-# Ejecutar FreeBayes con los archivos encontrados
-# --------------------------------------------
+echo "Reference: $REFERENCE"
+echo "Output VCF: $OUTPUT_VCF"
+echo "Running FreeBayes..."
+
+# -----------------------------------------------
+# Run FreeBayes
+# -----------------------------------------------
 freebayes \
-  -f /biodata7/proyectos/ensamblajeCC01-1940/v2/genoma_enmascarado/cc-01-1940_flye_polishing_allhic_ngsepBuilder_enmascarado.fasta \
+  -f "$REFERENCE" \
   --ploidy 10 \
   --min-alternate-fraction 0.1 \
   --min-alternate-count 4 \
@@ -81,3 +98,4 @@ freebayes \
   --min-base-quality 30 \
   $FILES > "$OUTPUT_VCF"
 
+echo "FreeBayes completed. Output: $OUTPUT_VCF"

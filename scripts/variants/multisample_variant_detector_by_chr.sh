@@ -1,132 +1,104 @@
 #!/bin/bash
 
 # --------------------------------------------------------------
-# Script: multisamplevariantsdetectorbyChr.sh
+# Script: multisample_variant_detector_by_chr.sh
 # Author: Jhon Henry Trujillo Montenegro
 # Date: April 22, 2025
 # Description:
 #    This script efficiently extracts reads for a specific chromosome
 #    from multiple BAM or CRAM files located in a user-defined input
 #    directory. It uses the 'find' command to locate these files and a
-#    loop to process them sequentially. It calls an external script
-#    ('/biodata4/proyectos/scripts/extraer_cromosoma_desde_bam.sh')
-#    to perform chromosome extraction on each input file. The resulting
-#    chromosome-specific files are saved in a temporary subdirectory,
-#    which can be user-defined with -t, or otherwise is generated inside
-#    the input directory with the chromosome name. Optionally, it can
-#    execute a variant calling script and then clean up the temporary files.
+#    loop to process them sequentially. It calls the 'extract_chromosome_from_bam.sh'
+#    utility to perform extraction on each input file. The resulting
+#    chromosome-specific files are saved in a temporary subdirectory.
+#    Optionally, it can execute the multisample variant caller and then
+#    clean up the temporary files.
 #
 # Usage:
-#    ./multisamplevariantsdetectorbyChr.sh -d <input_data_directory> -c <chromosome> [-p <processors>] [-r <reference_fasta>] [-o <output_vcf_file>] [-t <temporary_directory>]
+#    ./multisample_variant_detector_by_chr.sh -d <input_dir> -c <chromosome> [-p <threads>] [-r <ref.fasta>] [-o <output.vcf>] [-t <temp_dir>]
 #
 # Example:
-#    ./multisamplevariantsdetectorbyChr.sh -d all_bams -c chr2 -p 16 -r /path/to/reference.fasta -o variants/output_chr2.vcf
-#    ./multisamplevariantsdetectorbyChr.sh -c 1 -d input_data -r ref.fasta -o results/final.vcf -t /tmp/chr1_tmp
+#    ./multisample_variant_detector_by_chr.sh -d all_bams -c chr2 -p 16 -r /path/to/ref.fasta -o variants/output_chr2.vcf
 # --------------------------------------------------------------
 
 set -euo pipefail
 
 # --------------------------------------------------------------
-# Define the options accepted by the script
+# Load configuration if available
 # --------------------------------------------------------------
-OPTS="d:c:p:r:o:t:"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SUITE_BASE="$(dirname "$(dirname "$SCRIPT_DIR")")"
+if [[ -f "$SUITE_BASE/lib/load_config.sh" ]]; then
+    source "$SUITE_BASE/lib/load_config.sh"
+fi
 
 # --------------------------------------------------------------
-# Use getopt to parse the options and their arguments
+# Parse options
 # --------------------------------------------------------------
-while getopts "$OPTS" opt; do
+while getopts "d:c:p:r:o:t:" opt; do
   case "$opt" in
-    d) input_data_directory="$OPTARG" ;;
+    d) input_dir="$OPTARG" ;;
     c) chromosome="$OPTARG" ;;
-    p) processors="$OPTARG" ;;
-    r) reference_fasta="$OPTARG" ;;
-    o) vcf_output_file="$OPTARG" ;;
-    t) temporary_directory="$OPTARG" ;;
-    \?) echo "Usage: $0 -d <input_data_directory> -c <chromosome> [-p <processors>] [-r <reference_fasta>] [-o <output_vcf_file>] [-t <temporary_directory>]" >&2; exit 1 ;;
+    p) threads="$OPTARG" ;;
+    r) ref_fasta="$OPTARG" ;;
+    o) output_vcf="$OPTARG" ;;
+    t) temp_dir="$OPTARG" ;;
+    *) echo "Usage: $0 -d <input_dir> -c <chromosome> [-p <threads>] [-r <ref.fasta>] [-o <output.vcf>] [-t <temp_dir>]" >&2; exit 1 ;;
   esac
 done
 
-# --------------------------------------------------------------
-# Remove the processed options from the argument list
-# --------------------------------------------------------------
-shift $((OPTIND - 1))
-
-# --------------------------------------------------------------
-# Verify that the mandatory arguments for extraction have been provided
-# --------------------------------------------------------------
-if [ -z "${input_data_directory:-}" ] || [ -z "${chromosome:-}" ]; then
+# Verify mandatory arguments
+if [ -z "${input_dir:-}" ] || [ -z "${chromosome:-}" ]; then
   echo "Error: The -d (input directory) and -c (chromosome) arguments are mandatory." >&2
-  echo "Usage: $0 -d <input_data_directory> -c <chromosome> [-p <processors>] [-r <reference_fasta>] [-o <output_vcf_file>] [-t <temporary_directory>]" >&2
   exit 1
 fi
 
-# --------------------------------------------------------------
-# Check if the output VCF file already exists
-# --------------------------------------------------------------
-if [ -n "${vcf_output_file:-}" ] && [ -f "$vcf_output_file" ]; then
-  echo "Warning: The output VCF file '$vcf_output_file' already exists. Skipping the entire process."
+# Skip if output already exists
+if [ -n "${output_vcf:-}" ] && [ -f "$output_vcf" ]; then
+  echo "Warning: Output VCF file '$output_vcf' already exists. Skipping."
   exit 0
 fi
 
-# --------------------------------------------------------------
-# Set default value for the number of processors
-# --------------------------------------------------------------
-if [ -z "${processors:-}" ]; then
-  processors=20
-fi
+# Defaults
+threads="${threads:-20}"
 
-# --------------------------------------------------------------
-# Set default temporary directory if not provided
-# --------------------------------------------------------------
-# Set the full temporary directory path
-if [ -z "${temporary_directory:-}" ]; then
-  temporary_directory="$input_data_directory/${chromosome}_extracted_temp"
+if [ -z "${temp_dir:-}" ]; then
+  temp_dir="$input_dir/${chromosome}_extracted_temp"
 else
-  # Agrega el sufijo al path base proporcionado con -t
-  temporary_directory="${temporary_directory%/}/${chromosome}_temp"
+  temp_dir="${temp_dir%/}/${chromosome}_temp"
 fi
 
+mkdir -p "$temp_dir"
 
 # --------------------------------------------------------------
-# Create the temporary directory if it does not exist
+# Find BAM/CRAM files and extract chromosome
 # --------------------------------------------------------------
-mkdir -p "$temporary_directory"
+# We find the extractor script relative to this script's directory
+EXTRACTOR_SCRIPT="$SUITE_BASE/scripts/utils/extract_chromosome_from_bam.sh"
+VARIANT_SCRIPT="$SUITE_BASE/scripts/variants/multisample_variant_detector.sh"
 
-# --------------------------------------------------------------
-# Find BAM/CRAM files and extract the chromosome using a while loop
-# (robust to spaces in filenames)
-# --------------------------------------------------------------
-find "$input_data_directory" -maxdepth 1 -type f \( -name "*.bam" -o -name "*.cram" \) | while IFS= read -r bam_file; do
-  echo "Extracting chromosome $chromosome from file: $bam_file using $processors processors."
-  /biodata4/proyectos/scripts/extraer_cromosoma_desde_bam.sh -b "$bam_file" -c "$chromosome" -o "$temporary_directory" -p "$processors"
+find "$input_dir" -maxdepth 1 -type f \( -name "*.bam" -o -name "*.cram" \) | while IFS= read -r bam_file; do
+  echo "Extracting chromosome $chromosome from file: $bam_file"
+  bash "$EXTRACTOR_SCRIPT" -b "$bam_file" -c "$chromosome" -o "$temp_dir" -p "$threads"
 done
 
-# --------------------------------------------------------------
-# Completion message for extraction
-# --------------------------------------------------------------
-echo "Extraction completed. Chromosome $chromosome files have been temporarily saved in: $temporary_directory using $processors processors."
+echo "Extraction completed. Files saved in: $temp_dir"
 
 # --------------------------------------------------------------
-# Execute the variant detector if -r and -o (for the VCF) options are provided
+# Execute variant detector if requested
 # --------------------------------------------------------------
-if [ -n "${reference_fasta:-}" ] && [ -n "${vcf_output_file:-}" ]; then
-  echo "Running the variant detector..."
-  time /biodata4/proyectos/scripts/multisamplevariantsdetector.sh -d "$temporary_directory" -r "$reference_fasta" -o "$vcf_output_file"
-  echo "Variant analysis completed. The VCF file has been saved as: $vcf_output_file"
-elif [ -n "${reference_fasta:-}" ] || [ -n "${vcf_output_file:-}" ]; then
-  echo "Warning: To run variant analysis, you must provide both -r (reference file) and -o (output VCF file path)."
+if [ -n "${ref_fasta:-}" ] && [ -n "${output_vcf:-}" ]; then
+  echo "Running multisample variant detector..."
+  time bash "$VARIANT_SCRIPT" -d "$temp_dir" -r "$ref_fasta" -o "$output_vcf"
+  echo "Variant analysis completed: $output_vcf"
+elif [ -n "${ref_fasta:-}" ] || [ -n "${output_vcf:-}" ]; then
+  echo "Warning: Both -r (reference) and -o (output VCF) are required for variant analysis."
 fi
 
-# --------------------------------------------------------------
-# Delete the temporary directory
-# --------------------------------------------------------------
-if [ -d "$temporary_directory" ]; then
-  echo "Deleting the temporary directory: $temporary_directory"
-  rm -rf "$temporary_directory"
-  echo "Temporary directory deleted."
+# Cleanup
+if [ -d "$temp_dir" ]; then
+  echo "Cleaning up temporary directory: $temp_dir"
+  rm -rf "$temp_dir"
 fi
 
-# --------------------------------------------------------------
-# Exit the script
-# --------------------------------------------------------------
 exit 0

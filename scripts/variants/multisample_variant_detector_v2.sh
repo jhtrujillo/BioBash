@@ -1,19 +1,29 @@
 #!/bin/bash
 
 ###############################################################################
-# Script: run_ngsep.sh
+# Script: multisample_variant_detector_v2.sh
 # Description: Run NGSEP MultisampleVariantsDetector with all .bam and .cram
 #              files found in one or more specified directories, excluding
-#              files with 'tmp' in their name.
+#              files with 'tmp' in their name. This version includes suite
+#              configuration support.
 #
 # Usage:
-#   ./multisamplevariantsdetector.sh -d <dir1> ... -r <ref.fasta> -o <out.vcf> [-p <ploidy>]
+#   ./multisample_variant_detector_v2.sh -d <dir1> ... -r <ref.fasta> -o <out.vcf> [-p <ploidy>]
 #
 # Requirements:
 #   - Java 8+
 #   - NGSEP .jar file
 #   - BAM/CRAM files must be indexed
 ###############################################################################
+
+# --------------------------------------------------------------
+# Load configuration if available
+# --------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SUITE_BASE="$(dirname "$(dirname "$SCRIPT_DIR")")"
+if [[ -f "$SUITE_BASE/lib/load_config.sh" ]]; then
+    source "$SUITE_BASE/lib/load_config.sh"
+fi
 
 show_help() {
   echo "Usage: $0 -d <dir1> <dir2> [...] -r <reference.fasta> -o <output.vcf> [-p <ploidy>]"
@@ -109,10 +119,7 @@ printf " - %s\n" "${READ_FILES[@]}"
 echo ""
 
 # Execute NGSEP
-# NOTE: The redundant memory flags (-Xms160g -Xmx160g and -Xms20024M -Xmx40048M)
-# were simplified. The JVM will use the last specified value.
-# I've kept the larger value for this example.
-java -XX:MaxHeapSize=500g -Xms160g -Xmx160g -jar /biodata1/biotools/ngsep/NGSEPcore/NGSEPcore_5.0.0.jar \
+"${JAVA_BIN:-java}" -XX:MaxHeapSize="${JVM_MAX_HEAP:-160g}" -Xms160g -Xmx"${JVM_MAX_HEAP:-160g}" -jar "${NGSEP_JAR:-/biodata1/biotools/ngsep/NGSEPcore/NGSEPcore_5.0.0.jar}" \
   MultisampleVariantsDetector \
   -r "$REF_GENOME" \
   -o "$OUTPUT_VCF" \

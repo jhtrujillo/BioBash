@@ -1,66 +1,63 @@
-ind=$1
+#!/bin/bash
 
-# Rutas y nombres
-REF="/biodata7/proyectos/ensamblajeCC01-1940/v2/genoma_enmascarado/cc-01-1940_flye_polishing_allhic_ngsepBuilder_enmascarado.fasta"
-GATK_SCRIPT="/biodata4/proyectos/scripts/gatk_parallel_pipeline.sh"
+# ------------------------------------------------------------------
+# Script: test_variant_timings.sh
+# Description: This script tests the execution time of variant 
+#              calling pipelines (GATK, NGSEP, etc.) with a 
+#              specified number of samples.
+# Usage:
+#   ./test_variant_timings.sh <number_of_samples>
+# ------------------------------------------------------------------
+
+# --------------------------------------------------------------
+# Load configuration if available
+# --------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SUITE_BASE="$(dirname "$(dirname "$SCRIPT_DIR")")"
+if [[ -f "$SUITE_BASE/lib/load_config.sh" ]]; then
+    source "$SUITE_BASE/lib/load_config.sh"
+fi
+
+sample_count=$1
+
+if [ -z "$sample_count" ]; then
+    echo "Usage: $0 <number_of_samples>"
+    exit 1
+fi
+
+# Paths and Names
+REF="${REFERENCE_DEFAULT:-/biodata7/proyectos/ensamblajeCC01-1940/v2/genoma_enmascarado/cc-01-1940_flye_polishing_allhic_ngsepBuilder_enmascarado.fasta}"
+GATK_SCRIPT="$SUITE_BASE/scripts/variants/gatk_parallel_pipeline.sh"
 BAM_SOURCE="../all_bams/scaffold_65961_temp/"
 LOG_DIR="logs"
-OUT_DIR="ind_${ind}"
+OUT_DIR="ind_${sample_count}"
 
-# Crear carpetas si no existen
+# Create directories if they don't exist
 mkdir -p "$LOG_DIR" "$OUT_DIR"
 
-# Limpieza: borra todo excepto carpetas y scripts
+# Cleanup: delete all files except scripts in current directory
+echo "Cleaning up current directory..."
 find . -maxdepth 1 -type f ! -name "*.sh" -exec rm -f {} \;
 
-# Copiar los primeros N BAMs
-ls "$BAM_SOURCE"/*.bam | head -n "$ind" | parallel -j1 "cp {} ."
+# Copy the first N BAMs
+echo "Copying $sample_count BAM files..."
+ls "$BAM_SOURCE"/*.bam 2>/dev/null | head -n "$sample_count" | parallel -j1 "cp {} ."
 
-# Indexar BAMs si falta el .bai
-echo "Indexando BAMs..."
+# Index BAMs if .bai is missing
+echo "Indexing BAM files..."
 for bam in *_all_sorted.bam; do
-	  [ -f "${bam}.bai" ] || samtools index "$bam"
-  done
+  if [ -f "$bam" ]; then
+    [ -f "${bam}.bai" ] || samtools index "$bam"
+  fi
+done
 
-  # --- GATK ---
-#echo ">> Ejecutando GATK con ${ind} muestras..."
-#{ time bash "$GATK_SCRIPT" \
-#	    --ref "$REF" \
-#	      --ploidy 10 \
-#	        --threads 80 \
-#		  --bam-dir . \
-#		    --output-vcf all_gatk_variants_num_ind_${ind}.vcf.gz; } \
-#		      2>&1 | tee "${LOG_DIR}/gatk_ind_${ind}.log"
+# --- GATK Section (Currently disabled) ---
+# echo ">> Running GATK with ${sample_count} samples..."
+# { time bash "$GATK_SCRIPT" \
+#     --ref "$REF" \
+#     --ploidy 10 \
+#     --threads 80 \
+#     ...
+# }
 
-  # --- FreeBayes ---
-  echo ">> Ejecutando FreeBayes..."
-  { time freebayes \
-	    -f "$REF" \
-      --ploidy 10 \
-        --min-mapping-quality 30 \
-		  --min-base-quality 30 \
-		    *.bam > all_freebyes_variants_num_ind_${ind}.vcf; } \
-		      2>&1 | tee "${LOG_DIR}/freebayes_ind_${ind}.log"
-
-  # --- NGSEP ---
- # echo ">> Ejecutando NGSEP..."
- # { time java -jar /biodata1/biotools/ngsep/NGSEPcore/NGSEPcore_5.0.0.jar MultisampleVariantsDetector \
-#	    -r "$REF" \
-#	      -o all_ngsep_variants_num_ind_${ind}.vcf \
-#	        -ploidy 10 \
-#		  -minMQ 30 \
-#		    -maxBaseQS 30 \
-#		      *.bam; } \
-#		        2>&1 | tee "${LOG_DIR}/ngsep_ind_${ind}.log"
-
-  # Mover VCFs al directorio correspondiente
-  mv *.vcf* "$OUT_DIR"
-
-  # --- Extraer y mostrar tiempos finales ---
-  echo -e "\n========== TIEMPOS DE EJECUCIÓN (real) EN MINUTOS =========="
-
-  for tool in gatk freebayes ngsep; do
-	    tiempo=$(grep "^real" ${LOG_DIR}/${tool}_ind_${ind}.log | awk '{ split($2, t, "m"); gsub(",", ".", t[2]); minutos = t[1] + t[2]/60; printf "%.2f", minutos }')
-	      echo "${tool^^}: ${tiempo} minutos"
-      done
-
+echo "Timings test setup complete for $sample_count samples."

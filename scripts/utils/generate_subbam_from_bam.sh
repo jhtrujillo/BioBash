@@ -1,89 +1,55 @@
 #!/bin/bash
 
 # --------------------------------------------------------------
-# Script: multisamplevariantsdetectorbyChr.sh
-# Autor: Jhon Henry Trujillo Montenegro
-# Fecha: 22 de abril de 2025
-# Descripción:
-#    Este script extrae eficientemente lecturas para un cromosoma específico
-#    desde múltiples archivos BAM o CRAM ubicados en un directorio de entrada
-#    definido por el usuario. Utiliza el comando 'find' para localizar estos
-#    archivos y un bucle para procesarlos secuencialmente. Llama a un script
-#    externo ('/biodata4/proyectos/scripts/extraer_cromosoma_desde_bam.sh')
-#    para realizar la extracción del cromosoma en cada archivo de entrada.
-#    Los archivos resultantes específicos del cromosoma se guardan en una
-#    subcarpeta temporal dentro del directorio de entrada, con el nombre del
-#    cromosoma. Opcionalmente, puede ejecutar un script de llamado de variantes
-#    y luego limpiar los archivos temporales extraídos.
+# Script: generate_subbam_from_bam.sh
+# Author: Jhon Henry Trujillo Montenegro
+# Description:
+#   Extracts reads for a specific chromosome from multiple BAM/CRAM
+#   files in an input directory, sequentially.
+#   Uses extract_chromosome_from_bam.sh internally.
 #
-#    Este código fue desarrollado con el apoyo de ChatGPT y Gemini.
+# Usage:
+#   ./generate_subbam_from_bam.sh -d <input_dir> -c <chromosome> [-p <threads>]
 #
-# Uso:
-#    ./multisamplevariantsdetectorbyChr.sh -d <directorio_entrada> -c <cromosoma> [-p <procesadores>] [-r <referencia_fasta>] [-o <ruta_archivo_vcf>]
-#
-# Ejemplo:
-#    ./multisamplevariantsdetectorbyChr.sh -d todos_bams -c chr2 -p 16 -r /ruta/a/referencia.fasta -o variantes/salida_chr2.vcf
+# Example:
+#   ./generate_subbam_from_bam.sh -d all_bams -c chr2 -p 16
 # --------------------------------------------------------------
 
-# --------------------------------------------------------------
-# Definir las opciones aceptadas por el script
-# --------------------------------------------------------------
-OPTS="d:c:p:"
+# Load config if available
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SUITE_BASE="$(dirname "$(dirname "$SCRIPT_DIR")")"
+if [[ -f "$SUITE_BASE/lib/load_config.sh" ]]; then
+    source "$SUITE_BASE/lib/load_config.sh"
+fi
 
-# --------------------------------------------------------------
-# Utilizar getopt para analizar las opciones y sus argumentos
-# --------------------------------------------------------------
-while getopts "$OPTS" opt; do
+EXTRACTOR_SCRIPT="$SUITE_BASE/scripts/utils/extract_chromosome_from_bam.sh"
+
+while getopts "d:c:p:" opt; do
   case "$opt" in
-    d) directorio_entrada="$OPTARG" ;;
-    c) cromosoma="$OPTARG" ;;
-    p) procesadores="$OPTARG" ;;
-    \?) echo "Uso: $0 -d <directorio_entrada> -c <cromosoma> [-p <procesadores>]" >&2; exit 1 ;;
+    d) input_dir="$OPTARG"  ;;
+    c) chromosome="$OPTARG" ;;
+    p) threads="$OPTARG"    ;;
+    *) echo "Usage: $0 -d <input_dir> -c <chromosome> [-p <threads>]" >&2; exit 1 ;;
   esac
 done
-
-# --------------------------------------------------------------
-# Eliminar las opciones ya procesadas de la lista de argumentos
-# --------------------------------------------------------------
 shift $((OPTIND - 1))
 
-# --------------------------------------------------------------
-# Verificar que se hayan proporcionado los argumentos obligatorios
-# --------------------------------------------------------------
-if [ -z "$directorio_entrada" ] || [ -z "$cromosoma" ]; then
-  echo "Error: Los argumentos -d (directorio de entrada) y -c (cromosoma) son obligatorios." >&2
-  echo "Uso: $0 -d <directorio_entrada> -c <cromosoma> [-p <procesadores>]" >&2
+if [ -z "${input_dir:-}" ] || [ -z "${chromosome:-}" ]; then
+  echo "Error: -d (input directory) and -c (chromosome) are required." >&2
   exit 1
 fi
 
-# --------------------------------------------------------------
-# Establecer valor por defecto para el número de procesadores
-# --------------------------------------------------------------
-if [ -z "$procesadores" ]; then
-  procesadores=20
-fi
+threads="${threads:-20}"
+temp_dir="${input_dir}/${chromosome}_temp"
+mkdir -p "$temp_dir"
 
-# --------------------------------------------------------------
-# Definir el directorio temporal para los archivos extraídos
-# --------------------------------------------------------------
-directorio_temporal="$directorio_entrada/$cromosoma"_temp
+echo "Extracting chromosome $chromosome from all BAM/CRAM files in: $input_dir"
+echo "Temporary directory: $temp_dir"
 
-# --------------------------------------------------------------
-# Crear el directorio temporal si no existe
-# --------------------------------------------------------------
-mkdir -p "$directorio_temporal"
-
-# --------------------------------------------------------------
-# Buscar archivos BAM/CRAM y extraer el cromosoma usando un bucle for (secuencial)
-# --------------------------------------------------------------
-for archivo_bam in $(find "$directorio_entrada" -maxdepth 1 -type f \( -name "*.bam" -o -name "*.cram" \)); do
-  # Ejecutar el script de extracción para cada archivo, uno por uno
-  echo "Extrayendo cromosoma $cromosoma del archivo: $archivo_bam usando $procesadores procesadores."
-  /biodata4/proyectos/scripts/extraer_cromosoma_desde_bam.sh -b "$archivo_bam" -c "$cromosoma" -o "$directorio_temporal" -p "$procesadores"
+for bam_file in $(find "$input_dir" -maxdepth 1 -type f \( -name "*.bam" -o -name "*.cram" \)); do
+  echo "Processing: $bam_file"
+  bash "$EXTRACTOR_SCRIPT" -b "$bam_file" -c "$chromosome" -o "$temp_dir" -p "$threads"
 done
 
-
-# --------------------------------------------------------------
-# Salir del script
-# --------------------------------------------------------------
+echo "Extraction completed. Files saved in: $temp_dir"
 exit 0

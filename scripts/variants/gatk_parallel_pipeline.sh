@@ -1,66 +1,79 @@
 #!/bin/bash
 
-# Función de ayuda
+# --------------------------------------------------------------
+# Script: gatk_parallel_pipeline.sh
+# Description: Runs GATK HaplotypeCaller in parallel for all BAM files
+#              in a directory, then combines GVCFs and genotypes them.
+#
+# Usage:
+#   ./gatk_parallel_pipeline.sh --ref <reference.fasta> --ploidy <int> \
+#       --threads <int> --bam-dir <bam_path> --output-vcf <output.vcf.gz>
+#
+# Example:
+#   ./gatk_parallel_pipeline.sh --ref genome.fasta --ploidy 10 --threads 8 \
+#       --bam-dir ./bams --output-vcf variants.vcf.gz
+# --------------------------------------------------------------
+
 usage() {
-  echo "Uso:"
-  echo "  $0 --ref <reference.fasta> --ploidy <int> --threads <int> --bam-dir <ruta_bams> --output-vcf <salida.vcf.gz>"
+  echo "Usage:"
+  echo "  $0 --ref <reference.fasta> --ploidy <int> --threads <int> --bam-dir <bam_path> --output-vcf <output.vcf.gz>"
   echo ""
-  echo "Ejemplo:"
-  echo "  $0 --ref genoma.fasta --ploidy 10 --threads 8 --bam-dir ./bams --output-vcf variantes.vcf.gz"
+  echo "Example:"
+  echo "  $0 --ref genome.fasta --ploidy 10 --threads 8 --bam-dir ./bams --output-vcf variants.vcf.gz"
   exit 1
 }
 
-# Leer argumentos nombrados
+# Parse named arguments
 while [[ "$#" -gt 0 ]]; do
   case $1 in
-    --ref) REF="$2"; shift ;;
-    --ploidy) PLOIDY="$2"; shift ;;
-    --threads) THREADS="$2"; shift ;;
-    --bam-dir) BAM_DIR="$2"; shift ;;
+    --ref)     REF="$2";        shift ;;
+    --ploidy)  PLOIDY="$2";     shift ;;
+    --threads) THREADS="$2";    shift ;;
+    --bam-dir) BAM_DIR="$2";   shift ;;
     --output-vcf) OUTPUT_VCF="$2"; shift ;;
     -h|--help) usage ;;
-    *) echo "Parámetro desconocido: $1"; usage ;;
+    *) echo "Unknown parameter: $1"; usage ;;
   esac
   shift
 done
 
-# Validación de parámetros obligatorios
+# Validate mandatory parameters
 if [ -z "$REF" ] || [ -z "$PLOIDY" ] || [ -z "$THREADS" ] || [ -z "$BAM_DIR" ] || [ -z "$OUTPUT_VCF" ]; then
-  echo "Faltan parámetros obligatorios."
+  echo "Error: Missing mandatory parameters."
   usage
 fi
 
-# Verificar existencia de archivo de referencia
+# Verify reference file
 if [ ! -f "$REF" ]; then
-  echo "El archivo de referencia no existe: $REF"
+  echo "Error: Reference file not found: $REF"
   exit 1
 fi
 
-# Verificar y generar .dict si no existe
+# Generate .dict if missing
 DICT="${REF%.fasta}.dict"
 if [ ! -f "$DICT" ]; then
-  echo "No se encontró el archivo .dict. Generándolo..."
+  echo "Sequence dictionary (.dict) not found. Generating..."
   gatk CreateSequenceDictionary -R "$REF"
 fi
 
-# Verificar y generar .fai si no existe
+# Generate .fai if missing
 if [ ! -f "$REF.fai" ]; then
-  echo "No se encontró el índice .fai. Generándolo..."
+  echo "FASTA index (.fai) not found. Generating..."
   samtools faidx "$REF"
 fi
 
-# Verificar directorio de BAMs
+# Verify BAM directory
 if [ ! -d "$BAM_DIR" ]; then
-  echo "El directorio de BAMs no existe: $BAM_DIR"
+  echo "Error: BAM directory not found: $BAM_DIR"
   exit 1
 fi
 
-# Ejecutar HaplotypeCaller en paralelo por cada BAM
-echo "Ejecutando HaplotypeCaller en paralelo..."
+# Run HaplotypeCaller in parallel for each BAM
+echo "Running HaplotypeCaller in parallel across all BAM files..."
 find "$BAM_DIR" -name "*.bam" | parallel -j "$THREADS" --joblog parallel_hc.log --verbose '
   BAM={}
   SAMPLE=$(basename {} _all_sorted.bam)
-  echo "Procesando $SAMPLE"
+  echo "Processing sample: $SAMPLE"
   gatk HaplotypeCaller \
     -R '"$REF"' \
     -I "$BAM" \
@@ -69,30 +82,30 @@ find "$BAM_DIR" -name "*.bam" | parallel -j "$THREADS" --joblog parallel_hc.log 
     --sample-ploidy '"$PLOIDY"' \
     --minimum-mapping-quality 30 \
     --min-base-quality-score 30 \
-    || echo "ERROR: Falló HaplotypeCaller para $SAMPLE" >&2
+    || echo "ERROR: HaplotypeCaller failed for $SAMPLE" >&2
 '
 
-# Validar generación de archivos g.vcf.gz
+# Validate GVCF files were generated
 if ! ls *.g.vcf.gz 1>/dev/null 2>&1; then
-  echo "No se generaron archivos .g.vcf.gz. Verifica errores en parallel_hc.log."
+  echo "Error: No .g.vcf.gz files were generated. Check parallel_hc.log for errors."
   exit 1
 fi
 
-# Crear lista de GVCFs
+# Create GVCF list
 ls *.g.vcf.gz | awk '{print "--variant " $1}' > gvcf_list.txt
 
-# Combinar GVCFs
-echo "Combinando GVCFs..."
+# Combine GVCFs
+echo "Combining GVCFs..."
 gatk CombineGVCFs \
   -R "$REF" \
   $(cat gvcf_list.txt) \
   -O combined_tmp.g.vcf.gz
 
-# Genotipado conjunto
-echo "Ejecutando GenotypeGVCFs..."
+# Joint Genotyping
+echo "Running GenotypeGVCFs..."
 gatk GenotypeGVCFs \
   -R "$REF" \
   -V combined_tmp.g.vcf.gz \
   -O "$OUTPUT_VCF"
 
-echo "Proceso completado. Archivo final: $OUTPUT_VCF"
+echo "Pipeline completed. Final output: $OUTPUT_VCF"

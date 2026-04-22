@@ -1,55 +1,36 @@
 #!/bin/bash
 
-# Este script genera los índices para el archivo de contigs usando BWA.
-# Si los índices ya existen, el script solo los verificará y no los volverá a generar.
+# ------------------------------------------------------------------
+# Script: create_bwa_indexes.sh
+# Description: Creates BWA indexes for a reference genome FASTA file.
+#              Skips indexing if indexes already exist.
+#
+# Usage:
+#   ./create_bwa_indexes.sh -g <reference_genome.fasta>
+# ------------------------------------------------------------------
 
-# Variables para el genoma FASTA
-GENOME_FASTA=""
-
-# Función para mostrar el mensaje de ayuda
-usage() {
-    echo "Uso: $0 -g <ruta_a_genome.fasta>"
-    echo " "
-    echo "Opciones:"
-    echo "  -g    Ruta al archivo FASTA del genoma (ej. D9.contigs.fa)"
-    echo "  -h    Muestra este mensaje de ayuda"
+show_usage() {
+    echo "Usage: $0 -g <reference_genome.fasta>"
     exit 1
 }
 
-# Parsear los parámetros de entrada
-while getopts "g:h" opt; do
-    case ${opt} in
-        g )
-            GENOME_FASTA=$OPTARG
-            ;;
-        h )
-            usage
-            ;;
-        \? )
-            echo "Opción inválida: -$OPTARG" >&2
-            usage
-            ;;
-        : )
-            echo "La opción -$OPTARG requiere un argumento." >&2
-            usage
-            ;;
-    esac
+while getopts ":g:" opt; do
+  case $opt in
+    g) GENOME_FASTA="$OPTARG" ;;
+    *) show_usage ;;
+  esac
 done
-shift $((OPTIND -1))
 
-# Verificar que el parámetro -g ha sido proporcionado
-if [ -z "$GENOME_FASTA" ]; then
-    echo "Error: Faltan parámetros requeridos."
-    usage
+if [ -z "${GENOME_FASTA:-}" ]; then
+    show_usage
 fi
 
-# Verificar si el archivo FASTA de entrada existe
 if [ ! -f "$GENOME_FASTA" ]; then
-    echo "Error: El archivo FASTA $GENOME_FASTA no existe."
+    echo "Error: Genome file not found: $GENOME_FASTA"
     exit 1
 fi
 
-# Verificar si los índices de BWA ya existen
+# Check if BWA index files already exist
 INDEX_FILES=(
     "$GENOME_FASTA.amb"
     "$GENOME_FASTA.ann"
@@ -59,32 +40,25 @@ INDEX_FILES=(
 )
 
 INDEX_EXISTS=true
-for file in "${INDEX_FILES[@]}"; do
-    if [ ! -f "$file" ]; then
+for index_file in "${INDEX_FILES[@]}"; do
+    if [ ! -f "$index_file" ]; then
         INDEX_EXISTS=false
-        echo "El archivo de índice $file no existe. Generando índices..."
-        break
-    fi
-    # Comprobar que el tamaño del archivo no sea cero, lo que indicaría un archivo vacío
-    if [ ! -s "$file" ]; then
-        INDEX_EXISTS=false
-        echo "El archivo de índice $file está vacío. Generando índices..."
         break
     fi
 done
 
 if $INDEX_EXISTS; then
-    echo "Los índices de BWA para $GENOME_FASTA ya existen. Saltando la indexación."
+    echo "BWA indexes already exist for: $GENOME_FASTA"
+    echo "Skipping indexing."
 else
-    echo "Creando índice BWA para $GENOME_FASTA..."
+    echo "Creating BWA index for: $GENOME_FASTA..."
     bwa index "$GENOME_FASTA"
 
     if [ $? -ne 0 ]; then
-        echo "Error: Falló la indexación con BWA."
+        echo "Error: BWA indexing failed."
         exit 1
     fi
-    echo "Indexación BWA completada."
+    echo "BWA indexing completed successfully."
 fi
 
-echo "--- Script de indexación BWA completado ---"
-
+echo "--- BWA indexing script finished ---"

@@ -1,74 +1,66 @@
 #!/bin/bash
 
 # ------------------------------------------------------------------
-# Script: procesar_bam.sh
-# Descripción: Este script procesa un archivo BAM y genera un archivo VCF.
-# Uso:
-#   ./procesar_bam.sh -b <archivo.bam> -o <directorio_salida>
-#   -b <archivo.bam>       : Ruta del archivo BAM de entrada.
-#   -o <directorio_salida> : Directorio donde se guardará el archivo VCF.
+# Script: multisample_variant_detector_by_individual.sh
+# Description: Processes a BAM file to generate a VCF file using NGSEP.
+# Usage:
+#   ./multisample_variant_detector_by_individual.sh -b <input.bam> -o <output_dir>
+#   -b <input.bam>    : Path to the input BAM file.
+#   -o <output_dir>   : Directory where the output VCF will be saved.
 # ------------------------------------------------------------------
 
-# Función para mostrar el uso del script
-mostrar_uso() {
-  echo "Uso: $0 -b <archivo.bam> -o <directorio_salida>"
-  echo "  -b <archivo.bam>      : Archivo BAM de entrada"
-  echo "  -o <directorio_salida>: Directorio donde se guardará el archivo VCF"
+# --------------------------------------------------------------
+# Load configuration if available
+# --------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SUITE_BASE="$(dirname "$(dirname "$SCRIPT_DIR")")"
+if [[ -f "$SUITE_BASE/lib/load_config.sh" ]]; then
+    source "$SUITE_BASE/lib/load_config.sh"
+fi
+
+# Function to display usage
+show_usage() {
+  echo "Usage: $0 -b <input.bam> -o <output_dir>"
+  echo "  -b <input.bam>    : Input BAM file"
+  echo "  -o <output_dir>   : Directory where the output VCF will be saved"
   exit 1
 }
 
-# Parseo de los argumentos
-while getopts ":b:o:" opt; do
-  case $opt in
-    b)
-      archivo_bam="$OPTARG"
-      ;;
-    o)
-      directorio_salida="$OPTARG"
-      ;;
-    *)
-      mostrar_uso
-      ;;
+# Argument parsing
+while getopts "b:o:" opt; do
+  case "$opt" in
+    b) input_bam="$OPTARG" ;;
+    o) output_dir="$OPTARG" ;;
+    *) show_usage ;;
   esac
 done
 
-# Verificar que se hayan proporcionado ambos parámetros
-if [ -z "$archivo_bam" ] || [ -z "$directorio_salida" ]; then
-  mostrar_uso
+if [[ -z "${input_bam:-}" || -z "${output_dir:-}" ]]; then
+  show_usage
 fi
 
-# Verificar que el archivo BAM exista
-if [ ! -f "$archivo_bam" ]; then
-  echo "Error: El archivo '$archivo_bam' no existe."
-  exit 1
-fi
+# Deriving Sample ID from BAM name
+sample_id=$(basename "$input_bam" .bam)
+sample_id=${sample_id%_sorted} # Remove common suffixes if present
 
-# Verificar que el directorio de salida exista
-if [ ! -d "$directorio_salida" ]; then
-  echo "Error: El directorio '$directorio_salida' no existe."
-  exit 1
-fi
+mkdir -p "$output_dir"
+output_vcf="${output_dir}/${sample_id}.vcf"
 
-# Obtener el nombre base del archivo BAM sin la extensión
-nombre_base=$(basename "$archivo_bam" .bam)
+echo "Processing sample: $sample_id"
+echo "Output VCF: $output_vcf"
 
-# Ruta del archivo VCF de salida
-archivo_vcf="$directorio_salida/$nombre_base.vcf"
+# Execute NGSEP SingleSampleVariantsDetector
+"${JAVA_BIN:-java}" -XX:MaxHeapSize="${JVM_MAX_HEAP:-30g}" -jar "${NGSEP_JAR:-/biodata1/biotools/ngsep/NGSEPcore/NGSEPcore_5.0.0.jar}" \
+  SingleSampleVariantsDetector \
+  -i "$input_bam" \
+  -o "${output_vcf%.vcf}" \
+  -sampleId "$sample_id" \
+  -r "${REFERENCE_DEFAULT:-/biodata5/proyectos/llamado_variantes_olivier/referencia_r570/SofficinarumxspontaneumR570_771_v2.0_monoploid.hardmasked.fasta}" \
+  -ploidy 10 \
+  -minMQ 30 \
+  -maxBaseQS 30 \
+  -ignore5 5 \
+  -ignore3 5 \
+  -maxAlnsPerStartPos 100
 
-# Verificar si el archivo VCF ya existe
-if [ -f "$archivo_vcf" ]; then
-  echo "El archivo '$archivo_vcf' ya existe. Se omite."
-else
-  # Ejecutar el comando ngsep para generar el archivo VCF
-  echo "Procesando '$archivo_bam'..."
-  time JAVA_OPTS="-XX:MaxHeapSize=100g" ngsep MultisampleVariantsDetector \
-    -ploidy 10 \
-    -r /biodata7/proyectos/ensamblajeCC01-1940/v2/genoma_enmascarado/cc-01-1940_flye_polishing_allhic_ngsepBuilder_enmascarado.fasta \
-    -minMQ 5 \
-    -maxBaseQS 10 \
-    -minQuality 10 \
-    -h 0.0000 \
-    -psp \
-    -o "$archivo_vcf" \
-    "$archivo_bam"
-fi
+echo "Finished processing sample $sample_id."
