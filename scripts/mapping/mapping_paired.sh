@@ -1,67 +1,67 @@
 #!/bin/bash
 # --------------------------------------------------------------
-# Script para mapear lecturas pareadas con Bowtie2 + Samtools
-# Robusto para HPC: controla memoria/tmp de samtools sort
+# Script to map paired-end reads using Bowtie2 + Samtools
+# Robust for HPC: controls memory/tmp for samtools sort
 # --------------------------------------------------------------
-# Uso:
-# ./mapeo_pareado.sh <R1.fastq.gz> <R2.fastq.gz> <referencia> <workdir> <procesadores> [I=200] [X=400] [sample_name]
+# Usage:
+# ./mapping_paired.sh <R1.fastq.gz> <R2.fastq.gz> <reference> <workdir> <threads> [I=200] [X=400] [sample_name]
 #
-# Ejemplo:
-# ./mapeo_pareado.sh muestra_R1.fastq.gz muestra_R2.fastq.gz /ruta/ref.fasta /ruta/resultados 32
+# Example:
+# ./mapping_paired.sh sample_R1.fastq.gz sample_R2.fastq.gz /path/ref.fasta /path/results 32
 #
-# Parámetros:
-#   R1.fastq.gz   : archivo forward
-#   R2.fastq.gz   : archivo reverse
-#   referencia    : genoma de referencia en fasta
-#   workdir       : directorio de salida
-#   procesadores  : número de hilos para Bowtie2
-#   I             : tamaño mínimo de inserto (opcional, default=200)
-#   X             : tamaño máximo de inserto (opcional, default=400)
-#   sample_name   : nombre de muestra para read group (opcional)
+# Parameters:
+#   R1.fastq.gz   : forward reads file
+#   R2.fastq.gz   : reverse reads file
+#   reference     : reference genome in FASTA format
+#   workdir       : output directory
+#   threads       : number of threads for Bowtie2
+#   I             : minimum insert size (optional, default=200)
+#   X             : maximum insert size (optional, default=400)
+#   sample_name   : sample name for read group (optional)
 # --------------------------------------------------------------
 
 set -euo pipefail
 
 # --------------------------------------------------------------
-# Validar número mínimo de argumentos
+# Validate minimum number of arguments
 # --------------------------------------------------------------
 if [ $# -lt 5 ]; then
-  echo "USO: $0 <R1.fastq.gz> <R2.fastq.gz> <referencia> <workdir> <procesadores> [I=200] [X=400] [sample_name]"
+  echo "USAGE: $0 <R1.fastq.gz> <R2.fastq.gz> <reference> <workdir> <threads> [I=200] [X=400] [sample_name]"
   exit 1
 fi
 
 # --------------------------------------------------------------
-# Entradas y parámetros
+# Inputs and parameters
 # --------------------------------------------------------------
 f1="$1"
 f2="$2"
 reference="$3"
 workdir="$4"
-proc="$5"
+threads="$5"
 i="${6:-200}"
 x="${7:-400}"
 sample_name="${8:-}"
 
 # --------------------------------------------------------------
-# Verificar archivos de entrada
+# Verify input files
 # --------------------------------------------------------------
 if [ ! -f "$f1" ]; then
-  echo "ERROR: No existe el archivo R1: $f1"
+  echo "ERROR: R1 file does not exist: $f1"
   exit 2
 fi
 
 if [ ! -f "$f2" ]; then
-  echo "ERROR: No existe el archivo R2: $f2"
+  echo "ERROR: R2 file does not exist: $f2"
   exit 2
 fi
 
 if [ ! -f "$reference" ]; then
-  echo "ERROR: No existe la referencia: $reference"
+  echo "ERROR: Reference does not exist: $reference"
   exit 2
 fi
 
 # --------------------------------------------------------------
-# Derivar nombre de muestra si no fue suministrado
+# Derive sample name if not provided
 # --------------------------------------------------------------
 if [ -z "$sample_name" ]; then
   sample_name="$(basename "$f1")"
@@ -73,60 +73,60 @@ if [ -z "$sample_name" ]; then
   sample_name="${sample_name%_1}"
 fi
 
-s="SM:${sample_name}"
+read_group="SM:${sample_name}"
 
 # --------------------------------------------------------------
-# Construir prefijo del índice de forma robusta
+# Build index prefix robustly
 # --------------------------------------------------------------
-directorio="$(dirname "$reference")"
-base="$(basename "$reference")"
-base="${base%.gz}"
-base="${base%.fasta}"
-base="${base%.fa}"
-base="${base%.fna}"
-INDEXES="${directorio}/${base}"
+directory="$(dirname "$reference")"
+ref_prefix="$(basename "$reference")"
+ref_prefix="${ref_prefix%.gz}"
+ref_prefix="${ref_prefix%.fasta}"
+ref_prefix="${ref_prefix%.fa}"
+ref_prefix="${ref_prefix%.fna}"
+INDEXES="${directory}/${ref_prefix}"
 
 # --------------------------------------------------------------
-# Preparar salida
+# Prepare output
 # --------------------------------------------------------------
-output_dir="${workdir}/${sample_name}_${base}"
+output_dir="${workdir}/${sample_name}_${ref_prefix}"
 mkdir -p "$output_dir"
 
 sorted_bam="${output_dir}/${sample_name}_sorted.bam"
 log_bt2="${output_dir}/${sample_name}_bowtie2.log"
 
 # --------------------------------------------------------------
-# Validar índices (.bt2 o .bt2l)
+# Validate indexes (.bt2 or .bt2l)
 # --------------------------------------------------------------
 if [ ! -f "${INDEXES}.1.bt2" ] && [ ! -f "${INDEXES}.1.bt2l" ]; then
-  echo "ERROR: No se encontró el índice Bowtie2 con prefijo:"
+  echo "ERROR: Bowtie2 index not found with prefix:"
   echo "  ${INDEXES}"
-  echo "Se esperaba encontrar:"
-  echo "  ${INDEXES}.1.bt2  o  ${INDEXES}.1.bt2l"
+  echo "Expected to find:"
+  echo "  ${INDEXES}.1.bt2  or  ${INDEXES}.1.bt2l"
   echo ""
-  echo "Genera el índice con:"
+  echo "Generate the index with:"
   echo "  bowtie2-build ${reference} ${INDEXES}"
   exit 3
 fi
 
 # --------------------------------------------------------------
-# Evitar reprocesar si ya existe el BAM ordenado
+# Skip processing if sorted BAM already exists
 # --------------------------------------------------------------
 if [ -f "$sorted_bam" ]; then
-  echo "El archivo BAM ordenado ya existe: $sorted_bam"
-  echo "Se omite el proceso para ${sample_name}."
+  echo "Sorted BAM file already exists: $sorted_bam"
+  echo "Skipping process for ${sample_name}."
   exit 0
 fi
 
-echo "Directorio de trabajo: $output_dir"
-echo "Muestra: $sample_name"
-echo "Índice Bowtie2 (prefijo): $INDEXES"
-echo "Lecturas:"
+echo "Working directory: $output_dir"
+echo "Sample: $sample_name"
+echo "Bowtie2 index (prefix): $INDEXES"
+echo "Reads:"
 echo "  R1: $f1"
 echo "  R2: $f2"
 
 # --------------------------------------------------------------
-# Ajustes robustos para samtools sort
+# Robust settings for samtools sort
 # --------------------------------------------------------------
 tmp_root="${TMPDIR:-${output_dir}/tmp}"
 tmp_dir="${tmp_root}/${sample_name}_samtools_tmp"
@@ -134,7 +134,7 @@ mkdir -p "$tmp_dir"
 
 ulimit -n 65535 2>/dev/null || true
 
-# RAM disponible (MemAvailable) en GiB
+# Available RAM (MemAvailable) in GiB
 mem_avail_kb=$(awk '/MemAvailable:/ {print $2}' /proc/meminfo 2>/dev/null || echo "")
 if [[ -n "$mem_avail_kb" ]]; then
   mem_avail_gb=$(( mem_avail_kb / 1024 / 1024 ))
@@ -142,12 +142,12 @@ else
   mem_avail_gb=$(free -g 2>/dev/null | awk '/^Mem:/ {print $7}' || echo 0)
 fi
 
-# Hilos para sort (tope 32, mínimo 4)
-sort_threads="$proc"
+# Threads for sort (max 32, min 4)
+sort_threads="$threads"
 if (( sort_threads > 32 )); then sort_threads=32; fi
 if (( sort_threads < 4 )); then sort_threads=4; fi
 
-# Memoria por hilo para sort
+# Memory per thread for sort
 if (( mem_avail_gb <= 0 )); then
   sort_mem="2G"
 else
@@ -158,27 +158,27 @@ else
   sort_mem="${per_thread}G"
 fi
 
-echo "Ajustes samtools sort:"
+echo "Samtools sort settings:"
 echo "  sort_threads=${sort_threads}"
 echo "  sort_mem=${sort_mem}"
 echo "  tmp_dir=${tmp_dir}"
 echo "  ulimit -n=$(ulimit -n 2>/dev/null || echo 'NA')"
 
-echo "Comenzando mapeo + ordenamiento (BAM intermedio para máxima estabilidad)..."
+echo "Starting mapping + sorting (Intermediate BAM for maximum stability)..."
 
 # --------------------------------------------------------------
-# Estrategia estable: BAM intermedio + sort
+# Stable strategy: Intermediate BAM + sort
 # --------------------------------------------------------------
 unsorted_bam="${output_dir}/${sample_name}.bam"
 
-# 1) Mapeo -> BAM sin ordenar
+# 1) Mapping -> Unsorted BAM
 bowtie2 \
   --rg-id "${sample_name}" \
-  --rg "${s}" \
+  --rg "${read_group}" \
   --rg PL:ILLUMINA \
   -I "${i}" \
   -X "${x}" \
-  -p "${proc}" \
+  -p "${threads}" \
   -k 3 \
   -t \
   -x "${INDEXES}" \
@@ -187,7 +187,7 @@ bowtie2 \
   2> "${log_bt2}" \
 | samtools view -bhS -o "${unsorted_bam}" -
 
-# 2) Ordenar BAM
+# 2) Sort BAM
 samtools sort \
   -@ "${sort_threads}" \
   -m "${sort_mem}" \
@@ -195,26 +195,26 @@ samtools sort \
   -o "${sorted_bam}" \
   "${unsorted_bam}"
 
-# 3) Limpiar BAM intermedio
+# 3) Clean intermediate BAM
 rm -f "${unsorted_bam}"
 
-echo "Mapeo y ordenamiento completados. BAM: $sorted_bam"
+echo "Mapping and sorting completed. BAM: $sorted_bam"
 
 # --------------------------------------------------------------
-# Indexar BAM
+# Index BAM
 # --------------------------------------------------------------
 samtools index -@ "${sort_threads}" "${sorted_bam}"
 
 # --------------------------------------------------------------
-# Validación BAM
+# BAM Validation
 # --------------------------------------------------------------
 samtools flagstat "${sorted_bam}" > "${output_dir}/${sample_name}_sorted_flagstat.log"
 
 if grep -q "in total" "${output_dir}/${sample_name}_sorted_flagstat.log"; then
-  echo "Archivo BAM ordenado válido: ${sorted_bam}"
+  echo "Valid sorted BAM file: ${sorted_bam}"
 else
-  echo "ADVERTENCIA: BAM posiblemente vacío o dañado. Revisa: ${output_dir}/${sample_name}_sorted_flagstat.log"
+  echo "WARNING: BAM possibly empty or corrupted. Check: ${output_dir}/${sample_name}_sorted_flagstat.log"
   exit 5
 fi
 
-echo "Proceso finalizado exitosamente para la muestra ${sample_name}."
+echo "Process completed successfully for sample ${sample_name}."
