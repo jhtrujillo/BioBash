@@ -1,108 +1,108 @@
 # BioBash: Bioinformatics Analysis Suite
 
-Una suite integrada para la gestión y ejecución de scripts de bioinformática desarrollados por el equipo BAHS.
+An integrated suite for managing and executing bioinformatics scripts developed by the BAHS team.
 
-## Estructura del Proyecto
+## Project Structure
 
-- `bin/`: Contiene el ejecutable principal `biobash`.
-- `scripts/`: Scripts originales organizados por categorías.
-- `conf/`: Configuración centralizada (`biobash.conf`).
-- `lib/`: Librerías internas y cargador de configuración.
-- `logs/`: Registro de ejecuciones.
+- `bin/`: Contains the main executable `biobash`.
+- `scripts/`: Original scripts organized by categories.
+- `conf/`: Centralized configuration (`biobash.conf`).
+- `lib/`: Internal libraries and configuration loader.
+- `logs/`: Execution logs directory.
 
-## Instalación
+## Installation
 
-Añade el directorio `bin` a tu PATH para usar `biobash` desde cualquier lugar:
+Add the `bin` directory to your PATH to use `biobash` from anywhere:
 ```bash
 export PATH="/Users/estuvar4/Documents/2. software/1. suit_scripts_bahs/bin:$PATH"
 ```
 
 ---
 
-## 📖 Tutorial de Uso
+## 📖 Usage Tutorial
 
-La suite se ejecuta siguiendo este formato general:
+The suite is executed following this general format:
 ```bash
-biobash <categoría> <script> [argumentos]
+biobash <category> <script> [arguments]
 ```
 
-### 1. Mapeo (`mapping`)
-Scripts para alinear lecturas (FASTQ) a un genoma de referencia.
+### 1. Mapping (`mapping`)
+Scripts to align reads (FASTQ) to a reference genome.
 
-*   **`mapeo_wgs`**: Mapeo de Whole Genome Sequencing (lecturas pareadas).
+*   **`mapping_wgs`**: Whole Genome Sequencing mapping (paired-end reads).
     ```bash
-    biobash mapping mapeo_wgs <ID_Muestra> <ref.fasta> <dir_salida> <num_procesadores>
+    biobash mapping mapping_wgs <Sample_ID> <ref.fasta> <output_dir> <threads>
     ```
-*   **`mapeo_gsb`**: Mapeo con opciones de multi-mapping o filtrado único.
+*   **`mapping_gsb`**: Mapping with multi-mapping or unique filtering options.
     ```bash
-    biobash mapping mapeo_gsb <ID_Muestra> <ref.fasta> <dir_salida> <num_procesadores> [--unique] [--mapq 20]
+    biobash mapping mapping_gsb <Sample_ID> <ref.fasta> <output_dir> <threads> [--unique] [--mapq 20]
     ```
-*   **`mapeo_radseq`**: Mapeo especializado para datos de RAD-seq.
+*   **`mapping_radseq`**: Specialized mapping for RAD-seq data.
     ```bash
-    biobash mapping mapeo_radseq <ID_Muestra> <ref.fasta> <dir_salida> <num_procesadores>
-    ```
-
-### 2. Detección de Variantes (`variants`)
-Herramientas para identificar SNPs, Indels y genotipos.
-
-*   **`multisamplevariantsdetector`**: Detección masiva usando NGSEP.
-    ```bash
-    biobash variants multisamplevariantsdetector -d <dir_bams> -r <ref.fasta> -o <salida.vcf> [-p ploidia]
-    ```
-*   **`findvariants`**: Detección en una muestra individual.
-    ```bash
-    biobash variants findvariants -b <muestra.bam> -o <salida.vcf> [-k vcf_conocido]
-    ```
-*   **`merge_vcfs`**: Combina múltiples archivos VCF en uno solo.
-    ```bash
-    biobash variants merge_vcfs -i <dir_vcfs> -o <fusionado.vcf>
+    biobash mapping mapping_radseq <Sample_ID> <ref.fasta> <output_dir> <threads>
     ```
 
-### 3. Metagenómica (`metagenomics`)
-Flujos de trabajo para análisis de comunidades microbianas (Suite Magneto).
+### 2. Variant Discovery (`variants`)
+Tools to identify SNPs, Indels, and genotypes.
 
-*   **`magneto_checkM`**: Evaluación de calidad de MAGs (bins).
+*   **`multisamplevariantsdetector`**: Bulk detection using NGSEP.
     ```bash
-    biobash metagenomics magneto_checkM -f fa -i <dir_bins> -o <salida_checkm> -t <hilos> -l <id_log>
+    biobash variants multisample_variant_detector -d <bam_dir> -r <ref.fasta> -o <output.vcf> [-p ploidy]
     ```
-*   **`magneto_single_binning`**: Proceso de binning para muestras individuales.
+*   **`find_variants`**: Detection in an individual sample.
     ```bash
-    biobash metagenomics magneto_single_binning <ensamblaje.fasta> <bam_mapeo> <dir_salida> <hilos>
+    biobash variants find_variants -b <sample.bam> -o <output.vcf> [-k known_vcf]
     ```
-
-### 4. Conversión de Formatos (`conversion`)
-Optimización de almacenamiento de archivos de alineamiento.
-
-*   **`bam_to_cram`**: Convierte BAM (pesado) a CRAM (ligero).
+*   **`merge_vcfs`**: Combines multiple VCF files into one.
     ```bash
-    biobash conversion bam_to_cram -i <entrada.bam> -r <ref.fasta> -t <hilos> -d <dir_destino>
-    ```
-*   **`cram_to_bam`**: Restaura un archivo CRAM a BAM.
-    ```bash
-    biobash conversion cram_to_bam -i <entrada.cram> -r <ref.fasta> -t <hilos> -d <dir_destino>
+    biobash variants merge_vcfs -i <vcf_dir> -o <merged.vcf>
     ```
 
-### 5. Utilidades y Mantenimiento (`utils`)
-Herramientas de soporte para el día a día.
+### 3. Metagenomics (`metagenomics`)
+Workflows for microbial community analysis (Magneto Suite).
 
-*   **`check_bams`**: Verifica la integridad y existencia de archivos BAM masivamente.
+*   **`magneto_checkM`**: Quality assessment of MAGs (bins).
     ```bash
-    biobash utils check_bams <archivo_lista_individuos.txt> <dir_bams>
+    biobash metagenomics magneto_checkM -f fa -i <bins_dir> -o <checkm_output> -t <threads> -l <log_id>
     ```
-*   **`sort_bam`**: Ordena archivos BAM por coordenadas genómicas.
+*   **`magneto_single_binning`**: Binning process for individual samples.
     ```bash
-    biobash utils sort_bam <entrada.bam> <hilos> <mem_por_hilo>
+    biobash metagenomics magneto_single_binning <assembly.fasta> <mapping_bam> <output_dir> <threads>
     ```
-*   **`create_bwa_indexes`**: Genera índices de BWA para una referencia.
+
+### 4. Format Conversion (`conversion`)
+Optimization of alignment file storage.
+
+*   **`bam_to_cram`**: Converts BAM (heavy) to CRAM (light).
     ```bash
-    biobash utils create_bwa_indexes <referencia.fasta>
+    biobash conversion bam_to_cram -i <input.bam> -r <ref.fasta> -t <threads> -d <dest_dir>
+    ```
+*   **`cram_to_bam`**: Restores a CRAM file to BAM.
+    ```bash
+    biobash conversion cram_to_bam -i <input.cram> -r <ref.fasta> -t <threads> -d <dest_dir>
+    ```
+
+### 5. Utilities & Maintenance (`utils`)
+Support tools for day-to-day tasks.
+
+*   **`check_bams`**: Bulk verifies the integrity and existence of BAM files.
+    ```bash
+    biobash utils check_bams <sample_list.txt> <bam_dir>
+    ```
+*   **`sort_bam`**: Sorts BAM files by genomic coordinates.
+    ```bash
+    biobash utils sort_bam <input.bam> <threads> <mem_per_thread>
+    ```
+*   **`create_bwa_indexes`**: Generates BWA indexes for a reference.
+    ```bash
+    biobash utils create_bwa_indexes <reference.fasta>
     ```
 
 ---
 
-## Configuración Centralizada
+## Centralized Configuration
 
-Todas las herramientas leen sus rutas base y parámetros globales de:
+All tools read their base paths and global parameters from:
 `conf/biobash.conf`
 
-Si necesitas cambiar la ubicación de la base de datos de datos de WGS o el archivo de consecutivos, edita ese archivo una sola vez.
+If you need to change the location of the WGS data database or the consecutive file, edit this file once.
