@@ -1,0 +1,31 @@
+# BioBash .gitignore
+# -----------------------------------------------------------------------------
+
+# Logs
+logs/*.log
+logs/*.err
+
+# Bioinformática common outputs (Avoid accidentally uploading data)
+*.bam
+*.bai
+*.cram
+*.crai
+*.vcf
+*.vcf.gz
+*.vcf.gz.tbi
+*.fastq
+*.fastq.gz
+*.fa
+*.fasta
+*.fna
+*.fai
+*.bt2
+*.bt2l
+
+# Temporary files
+*.tmp
+*~
+.DS_Store
+
+# Configuration (Optional: you might want to keep the template, but ignore local changes)
+# conf/biobash.conf
